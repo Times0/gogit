@@ -24,41 +24,41 @@ func writeMapToFile(m map[string]string, filename string) error {
 }
 
 func removerepo() error {
-	fmt.Println("Removing GitGo repository...")
-	err := os.RemoveAll(".gitgo")
+	fmt.Println("Removing gogit repository...")
+	err := os.RemoveAll(".gogit")
 	if err != nil {
 		return fmt.Errorf("unable to remove directory: %v", err)
 	}
 	return nil
 }
 
-func gitgoinit() error {
-	fmt.Println("Initializing GitGo repository...")
+func gogitinit() error {
+	fmt.Println("Initializing gogit repository...")
 
-	if _, err := os.Stat(".gitgo"); err == nil {
+	if _, err := os.Stat(".gogit"); err == nil {
 		return fmt.Errorf("repository already exists")
 	}
 
-	// create a gitgo directory
-	err := os.Mkdir(".gitgo", 0755)
+	// create a gogit directory
+	err := os.Mkdir(".gogit", 0755)
 	if err != nil {
 		return fmt.Errorf("unable to create directory: %v", err)
 	}
 
 	// create the objects directory
-	err = os.Mkdir(".gitgo/objects", 0755)
+	err = os.Mkdir(".gogit/objects", 0755)
 	if err != nil {
 		return fmt.Errorf("unable to create objects directory: %v", err)
 	}
 
 	// create the commits directory
-	err = os.Mkdir(".gitgo/commits", 0755)
+	err = os.Mkdir(".gogit/commits", 0755)
 	if err != nil {
 		return fmt.Errorf("unable to create commits directory: %v", err)
 	}
 
 	// create the tracking list
-	file, err := os.Create(".gitgo/tracking")
+	file, err := os.Create(".gogit/tracking")
 	if err != nil {
 		return fmt.Errorf("unable to create tracking file: %v", err)
 	}
@@ -78,7 +78,7 @@ func add(args []string) error {
 		hash := fmt.Sprintf("%x", sha1.Sum(fileContent))
 
 		// write the entry to the tracking file
-		file, err := os.OpenFile(".gitgo/tracking", os.O_APPEND|os.O_WRONLY, 0644)
+		file, err := os.OpenFile(".gogit/tracking", os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
 			return fmt.Errorf("unable to open tracking file: %v", err)
 		}
@@ -97,7 +97,7 @@ func commit() error {
 	fmt.Println("Committing changes...")
 	// find the number of the commit
 	commitNumber := 0
-	commitDir := ".gitgo/commits"
+	commitDir := ".gogit/commits"
 
 	// read the commits directory
 	files, err := os.ReadDir(commitDir)
@@ -112,7 +112,7 @@ func commit() error {
 
 	fmt.Printf("Commit number: %d\n", commitNumber)
 
-	tracking_file, err := os.Open(".gitgo/tracking")
+	tracking_file, err := os.Open(".gogit/tracking")
 	if err != nil {
 		return fmt.Errorf("unable to open tracking file: %v", err)
 	}
@@ -140,7 +140,7 @@ func commit() error {
 		
 		// create a new directory for the commit			
 		nb_commited_files++
-		objectDir := filepath.Join(".gitgo/commits", fmt.Sprintf("%d", commitNumber))
+		objectDir := filepath.Join(".gogit/commits", fmt.Sprintf("%d", commitNumber))
 		if err := os.MkdirAll(objectDir, 0755); err != nil {
 			return fmt.Errorf("unable to create directory: %v", err)
 		}
@@ -155,7 +155,7 @@ func commit() error {
 		tracked_files[filename] = calculatedHash
 	}
 
-	writeMapToFile(tracked_files, ".gitgo/tracking")
+	writeMapToFile(tracked_files, ".gogit/tracking")
 
 	if nb_commited_files == 0 {
 		fmt.Println("No changes to commit")
@@ -167,7 +167,7 @@ func commit() error {
 
 func main() {
 	if len(os.Args) <= 1 {
-		fmt.Println("Usage: gitgo <command>")
+		fmt.Println("Usage: gogit <command>")
 		fmt.Println("Available commands: init, remove, commit")
 		os.Exit(1)
 	}
@@ -175,7 +175,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "init":
-		err = gitgoinit()
+		err = gogitinit()
 	case "remove":
 		err = removerepo()
 	case "add":
