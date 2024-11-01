@@ -1,195 +1,147 @@
-package main
+package gogit
 
 import (
 	"crypto/sha1"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 )
 
-
-func writeMapToFile(m map[string]string, filename string) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("unable to create file: %v", err)
-	}
-	defer file.Close()
-	for key, value := range m {
-		_, err := file.WriteString(fmt.Sprintf("%s %s\n", key, value))
-		if err != nil {
-			return fmt.Errorf("unable to write to file: %v", err)
-		}
-	}
-	return nil
+// Object interface for all git objects
+type Object interface {
+	Type() string
+	Hash() string
+	Serialize() []byte
 }
 
-func removerepo() error {
-	fmt.Println("Removing gogit repository...")
-	err := os.RemoveAll(".gogit")
-	if err != nil {
-		return fmt.Errorf("unable to remove directory: %v", err)
-	}
-	return nil
+// Blob object
+type Blob struct {
+	content []byte
 }
 
-func gogitinit() error {
-	fmt.Println("Initializing gogit repository...")
-
-	if _, err := os.Stat(".gogit"); err == nil {
-		return fmt.Errorf("repository already exists")
-	}
-
-	// create a gogit directory
-	err := os.Mkdir(".gogit", 0755)
-	if err != nil {
-		return fmt.Errorf("unable to create directory: %v", err)
-	}
-
-	// create the objects directory
-	err = os.Mkdir(".gogit/objects", 0755)
-	if err != nil {
-		return fmt.Errorf("unable to create objects directory: %v", err)
-	}
-
-	// create the commits directory
-	err = os.Mkdir(".gogit/commits", 0755)
-	if err != nil {
-		return fmt.Errorf("unable to create commits directory: %v", err)
-	}
-
-	// create the tracking list
-	file, err := os.Create(".gogit/tracking")
-	if err != nil {
-		return fmt.Errorf("unable to create tracking file: %v", err)
-	}
-	defer file.Close()
-	return nil
+func (b *Blob) Type() string {
+	return "blob"
 }
 
-func add(args []string) error {
-	fmt.Println("Adding files...", args)
-	for _, arg := range args {
-		fmt.Println("Adding file:", arg)
-		// Calculate SHA1 hash of file contents
-		fileContent, err := os.ReadFile(arg)
-		if err != nil {
-			return fmt.Errorf("unable to read file %s: %v", arg, err)
-		}
-		hash := fmt.Sprintf("%x", sha1.Sum(fileContent))
-
-		// write the entry to the tracking file
-		file, err := os.OpenFile(".gogit/tracking", os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("unable to open tracking file: %v", err)
-		}
-		defer file.Close()
-
-		// Write file name and hash to tracking file
-		_, err = file.WriteString(fmt.Sprintf("%s %s\n", arg, hash))
-		if err != nil {
-			return fmt.Errorf("unable to write to tracking file: %v", err)
-		}
-	}
-	return nil
+func (b *Blob) Hash() string {
+	header := fmt.Sprintf("%s %d\x00", b.Type(), len(b.content))
+	return fmt.Sprintf("%x", sha1.Sum([]byte(header+string(b.content))))
 }
 
-func commit() error {
-	fmt.Println("Committing changes...")
-	// find the number of the commit
-	commitNumber := 0
-	commitDir := ".gogit/commits"
-
-	// read the commits directory
-	files, err := os.ReadDir(commitDir)
-	if err != nil {
-		return fmt.Errorf("unable to read directory: %v", err)
-	}
-	for _, file := range files {
-		if file.IsDir() {
-			commitNumber++
-		}
-	}
-
-	fmt.Printf("Commit number: %d\n", commitNumber)
-
-	tracking_file, err := os.Open(".gogit/tracking")
-	if err != nil {
-		return fmt.Errorf("unable to open tracking file: %v", err)
-	}
-	defer tracking_file.Close()
-	nb_commited_files := 0
-	// read the tracking file line by line
-	tracked_files := make(map[string]string) // filename -> hash
-	var filename, hash string
-	for {
-		_, err := fmt.Fscanf(tracking_file, "%s %s\n", &filename, &hash)
-		if err != nil {
-			break
-		}
-		tracked_files[filename] = hash
-		fmt.Printf("Committing %s\n", filename)
-		// read the file content
-		addedFile, err := os.ReadFile(filename)
-		if err != nil {
-			return fmt.Errorf("unable to read file %s: %v", filename, err)
-		}
-		calculatedHash := fmt.Sprintf("%x", sha1.Sum(addedFile))
-		if calculatedHash == hash {
-			continue
-		}
-		
-		// create a new directory for the commit			
-		nb_commited_files++
-		objectDir := filepath.Join(".gogit/commits", fmt.Sprintf("%d", commitNumber))
-		if err := os.MkdirAll(objectDir, 0755); err != nil {
-			return fmt.Errorf("unable to create directory: %v", err)
-		}
-		fmt.Printf("Created directory %s\n", objectDir)
-
-		// write the file content to a new file in the directory
-		objectFile := filepath.Join(objectDir, filename)
-		err = os.WriteFile(objectFile, addedFile, 0644)
-		if err != nil {
-			return fmt.Errorf("unable to write file: %v", err)
-		}
-		tracked_files[filename] = calculatedHash
-	}
-
-	writeMapToFile(tracked_files, ".gogit/tracking")
-
-	if nb_commited_files == 0 {
-		fmt.Println("No changes to commit")
-	} else {
-		fmt.Printf("Committed %d files\n", nb_commited_files)
-	}
-	return nil
+// Tree object
+type TreeEntry struct {
+	mode string
+	name string
+	hash string
 }
 
-func main() {
-	if len(os.Args) <= 1 {
-		fmt.Println("Usage: gogit <command>")
-		fmt.Println("Available commands: init, remove, commit")
-		os.Exit(1)
+type Tree struct {
+	entries []TreeEntry
+}
+
+func (t *Tree) Type() string {
+	return "tree"
+}
+
+// Commit object
+type Commit struct {
+	tree      string
+	parent    string
+	author    string
+	committer string
+	message   string
+}
+
+func (c *Commit) Type() string {
+	return "commit"
+}
+
+type IndexEntry struct {
+	ctime time.Time
+	mtime time.Time
+	dev   uint32
+	ino   uint32
+	mode  uint32
+	uid   uint32
+	gid   uint32
+	size  uint32
+	hash  string
+	flags uint16
+	path  string
+}
+
+type Index struct {
+	entries map[string]*IndexEntry
+}
+
+func (repo *Repository) Add(paths []string) error {
+	for _, path := range paths {
+		// Read file content
+		content, err := ioutil.ReadFile(filepath.Join(repo.workdir, path))
+		if err != nil {
+			return err
+		}
+
+		// Create blob object
+		blob := &Blob{content: content}
+
+		// Store blob in objects database
+		if err := repo.storeObject(blob); err != nil {
+			return err
+		}
+
+		// Update index
+		stat, err := os.Stat(filepath.Join(repo.workdir, path))
+		if err != nil {
+			return err
+		}
+
+		entry := &IndexEntry{
+			path:  path,
+			hash:  blob.Hash(),
+			size:  uint32(stat.Size()),
+			mtime: stat.ModTime(),
+			// ... set other metadata
+		}
+
+		repo.index.entries[path] = entry
 	}
 
-	var err error
-	switch os.Args[1] {
-	case "init":
-		err = gogitinit()
-	case "remove":
-		err = removerepo()
-	case "add":
-		err = add(os.Args[2:])
-	case "commit":
-		err = commit()
-	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
-		fmt.Println("Available commands: init, add, remove, commit")
-		os.Exit(1)
+	return repo.writeIndex()
+}
+
+type Repository struct {
+	workdir string
+	gitdir  string
+	index   *Index
+}
+
+func InitRepository(path string) (*Repository, error) {
+	repo := &Repository{
+		workdir: path,
+		gitdir:  filepath.Join(path, ".git"),
 	}
 
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+	// Create necessary directories
+	dirs := []string{
+		repo.gitdir,
+		filepath.Join(repo.gitdir, "objects"),
+		filepath.Join(repo.gitdir, "refs"),
+		filepath.Join(repo.gitdir, "refs/heads"),
 	}
+
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, err
+		}
+	}
+
+	// Initialize HEAD to point to master branch
+	headFile := filepath.Join(repo.gitdir, "HEAD")
+	if err := ioutil.WriteFile(headFile, []byte("ref: refs/heads/master\n"), 0644); err != nil {
+		return nil, err
+	}
+
+	return repo, nil
 }
